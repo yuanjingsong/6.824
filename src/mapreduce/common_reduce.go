@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"io/ioutil"
+	"os"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +52,38 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+	res := make(map[string] []string)
+	mergePath := mergeName(jobName, reduceTask)
+	fs, err := os.Create(mergePath)
+	if err != nil {
+		panic(err)
+	}
+	bs := bufio.NewWriterSize(fs, 1<<20)
+	for i := 0; i < nMap; i ++ {
+		fileMapName := reduceName(jobName, i, reduceTask)
+		content, err := ioutil.ReadFile(fileMapName)
+		if err != nil {
+			panic(err)
+		}
+		lines := bytes.Split(content, []byte("\n"))
+		var tmpKV KeyValue
+		for _, line := range lines {
+			if len(line) == 0 {
+				continue
+			}
+			err = json.Unmarshal(line, &tmpKV)
+			res[tmpKV.Key] = append(res[tmpKV.Key], tmpKV.Value)
+		}
+	}
+
+	for key, value := range res {
+		reduceRes := reduceF(key, value)
+		enc := json.NewEncoder(bs)
+		if err := enc.Encode(&KeyValue{key, reduceRes}); err != nil {
+			panic(err)
+		}
+	}
+
+	SafeClose(fs, bs)
+
 }

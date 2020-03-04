@@ -1,7 +1,12 @@
 package mapreduce
 
 import (
+	"bufio"
+	"encoding/json"
 	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
 func doMap(
@@ -53,10 +58,51 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+	content, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		panic(err)
+	}
+
+	fs := make([]*os.File, nReduce)
+	bs := make([]*bufio.Writer, nReduce)
+
+	for i := range fs {
+		rPathName := reduceName(jobName, mapTask, i)
+		fs[i], err = os.Create(rPathName)
+		if err != nil {
+			panic(err)
+		}
+
+		bs[i] = bufio.NewWriterSize(fs[i], 1<<20)
+	}
+	res :=  mapF(inFile, string(content))
+
+	for _, kv := range res {
+		enc := json.NewEncoder(bs[ihash(kv.Key)%nReduce])
+		if err := enc.Encode(&kv); err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+	for i := range fs {
+		SafeClose(fs[i], bs[i])
+	}
+
 }
 
 func ihash(s string) int {
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	return int(h.Sum32() & 0x7fffffff)
+}
+
+func SafeClose(f *os.File, buf *bufio.Writer) {
+	if buf != nil {
+		if err := buf.Flush() ; err != nil {
+			panic(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
 }
